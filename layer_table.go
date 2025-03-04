@@ -393,6 +393,9 @@ func (lyr *LayerTable) requestSQL(tile *Tile, qp *queryParameters) (string, erro
 		Table          string
 		GeometryColumn string
 		Srid           int
+		TileZ          int
+		TileX          int
+		TileY          int
 	}
 
 	// need both the exact tile boundary for clipping and an
@@ -443,34 +446,68 @@ func (lyr *LayerTable) requestSQL(tile *Tile, qp *queryParameters) (string, erro
 		Table:          lyr.Table,
 		GeometryColumn: lyr.GeometryColumn,
 		Srid:           lyr.Srid,
+		TileZ:          tile.Zoom,
+		TileX:          tile.X,
+		TileY:          tile.Y,
 	}
 
 	if qp.Limit > 0 {
 		sp.Limit = fmt.Sprintf("LIMIT %d", qp.Limit)
 	}
 
-	// TODO: Remove ST_Force2D when fixes to line clipping are common
-	// in GEOS. See https://trac.osgeo.org/postgis/ticket/4690
 	tmplSQL := `
-	SELECT ST_AsMVT(mvtgeom, {{ .MvtParams }}) FROM (
-		SELECT ST_AsMVTGeom(
-			ST_Transform(ST_Force2D(t."{{ .GeometryColumn }}"), {{ .TileSrid }}),
-			bounds.geom_clip,
-			{{ .Resolution }},
-			{{ .Buffer }}
-		  ) AS "{{ .GeometryColumn }}"
-		  {{ if .Properties }}
-		  , {{ .Properties }}
-		  {{ end }}
-		FROM "{{ .Schema }}"."{{ .Table }}" t, (
-			SELECT {{ .TileSQL }}  AS geom_clip,
-					{{ .QuerySQL }} AS geom_query
-			) bounds
-		WHERE ST_Intersects(t."{{ .GeometryColumn }}",
-							ST_Transform(bounds.geom_query, {{ .Srid }}))
+	WITH 
+	bounds AS (
+		SELECT 
+			ST_TileEnvelope({{ .TileZ }}, {{ .TileX }}, {{ .TileY }}) AS tile_envelope,
+			CASE 
+				WHEN {{ .TileZ }} < 5 THEN 0.1
+				WHEN {{ .TileZ }} < 12 THEN 0.01
+				WHEN {{ .TileZ }} < 16 THEN 0.001
+				ELSE 0.0001
+			END AS grid_size
+	),
+	mvtgeom AS (
+		SELECT ST_AsMVT(tile, {{ .MvtParams }}) AS mvt
+		FROM (
+			SELECT 
+				{{ if .Properties }}
+				{{ .Properties }},
+				{{ end }}
+				ST_AsMVTGeom(
+					ST_Transform(
+						ST_SnapToGrid(
+							ST_Force2D(
+								ST_CurveToLine(t."{{ .GeometryColumn }}")
+							),
+							(SELECT grid_size FROM bounds)
+						),
+						{{ .TileSrid }}
+					),
+					(SELECT tile_envelope FROM bounds),
+					{{ .Resolution }},
+					{{ .Buffer }},
+					true
+				) AS "{{ .GeometryColumn }}"
+			FROM "{{ .Schema }}"."{{ .Table }}" t
+			WHERE t."{{ .GeometryColumn }}" && 
+				ST_Transform(
+					(SELECT tile_envelope FROM bounds),
+					{{ .Srid }}
+				)
+				AND ST_Intersects(
+					t."{{ .GeometryColumn }}",
+					ST_Transform(
+						(SELECT tile_envelope FROM bounds),
+						{{ .Srid }}
+					)
+				)
 			{{ .FilterSQL }}
-		{{ .Limit }}
-	) mvtgeom
+			{{ .Limit }}
+		) AS tile
+		WHERE tile."{{ .GeometryColumn }}" IS NOT NULL
+	)
+	SELECT mvt FROM mvtgeom
 	`
 
 	sql, err := renderSQLTemplate("tabletilesql", tmplSQL, sp)
