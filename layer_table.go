@@ -462,8 +462,8 @@ func (lyr *LayerTable) requestSQL(tile *Tile, qp *queryParameters) (string, erro
 			ST_TileEnvelope({{ .TileZ }}, {{ .TileX }}, {{ .TileY }}) AS tile_envelope,
 			CASE 
 				WHEN {{ .TileZ }} < 5 THEN 0.1
-				WHEN {{ .TileZ }} < 12 THEN 0.01
-				WHEN {{ .TileZ }} < 16 THEN 0.001
+				WHEN {{ .TileZ }} < 11 THEN 0.01
+				WHEN {{ .TileZ }} < 15 THEN 0.001
 				ELSE 0.0001
 			END AS grid_size
 	),
