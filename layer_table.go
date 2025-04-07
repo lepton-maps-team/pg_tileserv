@@ -460,12 +460,19 @@ func (lyr *LayerTable) requestSQL(tile *Tile, qp *queryParameters) (string, erro
 	bounds AS (
 		SELECT 
 			ST_TileEnvelope({{ .TileZ }}, {{ .TileX }}, {{ .TileY }}) AS tile_envelope,
-			CASE 
-				WHEN {{ .TileZ }} < 5 THEN 0.1
-				WHEN {{ .TileZ }} < 11 THEN 0.01
-				WHEN {{ .TileZ }} < 15 THEN 0.001
-				ELSE 0.0001
-			END AS grid_size
+			-- Calculate the center latitude of the tile
+			ST_Y(ST_Centroid(ST_Transform(ST_TileEnvelope({{ .TileZ }}, {{ .TileX }}, {{ .TileY }}), 4326))) AS tile_lat,
+			-- Calculate tolerance in degrees based on zoom level and actual latitude
+			-- Using the formula: tolerance_deg = (156543.03392 × cos(lat)) / (111320 × 2^(zoom))
+			-- We'll calculate this in the next CTE
+			0.996 AS base_factor
+	),
+	simplification AS (
+		SELECT 
+			tile_envelope,
+			-- Calculate the actual tolerance based on the tile's latitude
+			base_factor * COS(RADIANS(tile_lat)) / POWER(2, {{ .TileZ }}) AS grid_size
+		FROM bounds
 	),
 	mvtgeom AS (
 		SELECT ST_AsMVT(tile, {{ .MvtParams }}) AS mvt
@@ -476,15 +483,27 @@ func (lyr *LayerTable) requestSQL(tile *Tile, qp *queryParameters) (string, erro
 				{{ end }}
 				ST_AsMVTGeom(
 					ST_Transform(
-						ST_SnapToGrid(
-							ST_Force2D(
-								ST_CurveToLine(t."{{ .GeometryColumn }}")
-							),
-							(SELECT grid_size FROM bounds)
-						),
+						CASE 
+							WHEN ST_IsPolygon(t."{{ .GeometryColumn }}") THEN
+								ST_SnapToGrid(
+									ST_Force2D(
+										ST_CurveToLine(t."{{ .GeometryColumn }}")
+									),
+									(SELECT grid_size FROM simplification)
+								)
+							WHEN ST_IsLine(t."{{ .GeometryColumn }}") THEN
+								ST_Simplify(
+									ST_Force2D(
+										ST_CurveToLine(t."{{ .GeometryColumn }}")
+									),
+									(SELECT grid_size FROM simplification)
+								)
+							ELSE
+								ST_Force2D(t."{{ .GeometryColumn }}")
+						END,
 						{{ .TileSrid }}
 					),
-					(SELECT tile_envelope FROM bounds),
+					(SELECT tile_envelope FROM simplification),
 					{{ .Resolution }},
 					{{ .Buffer }},
 					true
@@ -492,13 +511,13 @@ func (lyr *LayerTable) requestSQL(tile *Tile, qp *queryParameters) (string, erro
 			FROM "{{ .Schema }}"."{{ .Table }}" t
 			WHERE t."{{ .GeometryColumn }}" && 
 				ST_Transform(
-					(SELECT tile_envelope FROM bounds),
+					(SELECT tile_envelope FROM simplification),
 					{{ .Srid }}
 				)
 				AND ST_Intersects(
 					t."{{ .GeometryColumn }}",
 					ST_Transform(
-						(SELECT tile_envelope FROM bounds),
+						(SELECT tile_envelope FROM simplification),
 						{{ .Srid }}
 					)
 				)
