@@ -484,14 +484,14 @@ func (lyr *LayerTable) requestSQL(tile *Tile, qp *queryParameters) (string, erro
 				ST_AsMVTGeom(
 					ST_Transform(
 						CASE 
-							WHEN ST_IsPolygon(t."{{ .GeometryColumn }}") THEN
+							WHEN ST_GeometryType(t."{{ .GeometryColumn }}") IN ('ST_Polygon', 'ST_MultiPolygon') THEN
 								ST_SnapToGrid(
 									ST_Force2D(
 										ST_CurveToLine(t."{{ .GeometryColumn }}")
 									),
 									(SELECT grid_size FROM simplification)
 								)
-							WHEN ST_IsLine(t."{{ .GeometryColumn }}") THEN
+							WHEN ST_GeometryType(t."{{ .GeometryColumn }}") IN ('ST_LineString', 'ST_MultiLineString') THEN
 								ST_Simplify(
 									ST_Force2D(
 										ST_CurveToLine(t."{{ .GeometryColumn }}")

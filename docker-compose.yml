@@ -1,0 +1,33 @@
+services:
+  smart-flows-tiler:
+    image: leptonworld/pg_tileserv:latest-amd64
+    restart: unless-stopped
+    environment:
+      # - RUST_LOG=debug
+      - DATABASE_URL=postgres://postgres:Alexandr1a@192.168.1.59:5432/leptonmaps
+    # networks:
+    #   - deployed-containers
+    # healthcheck:
+    #   test: ["NONE"]
+    ports:
+      - 7800:7800
+    volumes:
+      - ./tiler.config.toml:/config/pg_tileserv.toml
+    # labels:
+    #   - traefik.enable=true
+    #   - traefik.http.services.smart-flows-tiler.loadbalancer.responseforwarding.flushinterval=-1
+    #   - traefik.http.routers.smart-flows-tiler.entrypoints=websecure
+    #   - traefik.http.routers.smart-flows-tiler.rule=Host(`smart-flows.tiles.rio.software`)
+    #   - traefik.http.routers.smart-flows-tiler.tls.certresolver=myresolver
+    #   - traefik.http.services.smart-flows-tiler.loadbalancer.server.port=7800
+    #   - "traefik.http.middlewares.smart-flows-tiler-cors.headers.accesscontrolallowmethods=GET,OPTIONS,PUT"
+    #   - "traefik.http.middlewares.smart-flows-tiler-cors.headers.accesscontrolallowheaders=*"
+    #   - "traefik.http.middlewares.smart-flows-tiler-cors.headers.accesscontrolalloworiginlist=*"
+    #   - "traefik.http.middlewares.smart-flows-tiler-cors.headers.accesscontrolmaxage=100"
+    #   - "traefik.http.middlewares.smart-flows-tiler-cors.headers.addvaryheader=true"
+    #   - traefik.http.routers.smart-flows-tiler.middlewares=smart-flows-tiler-cors  # Attach Souin middleware ONLY to Martin
+    #   - "traefik.http.middlewares.smart-flows-tiler-cache.plugin.souin.default_cache.ttl=60000s"  # Cache for 10 minutes
+    #   - "traefik.http.middlewares.smart-flows-tiler-cache.plugin.souin.default_cache.stale=120s"  # Serve stale for 2 minutes
+    #   - "traefik.http.middlewares.smart-flows-tiler-cache.plugin.souin.default_cache.allowed_http_verbs=GET,HEAD"
+    #   - "traefik.http.middlewares.smart-flows-tiler-cache.plugin.souin.default_cache.default_cache_control=public, max-age=600"
+    #   - "traefik.http.middlewares.smart-flows-tiler-cache.plugin.souin.log_level=debug"
